@@ -7,6 +7,7 @@ from datetime import datetime
 import io
 import re
 
+# === НАСТРОЙКА СТРАНИЦЫ ===
 st.set_page_config(
     page_title="📊 Расходный дашборд",
     page_icon="💰",
@@ -16,8 +17,10 @@ st.set_page_config(
 st.title("💰 Расходный дашборд")
 st.caption(f"📆 Обновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
 
+# === ССЫЛКА НА ДАННЫЕ ===
 DATA_URL = "https://script.google.com/macros/s/AKfycbxVXqV-y4qWfpfyp8MtrxApVqwuKWvbcxg0R1awJC81H06tM1efWpyTiP5O-DFq0tjTrA/exec"
 
+# === ЗАГРУЗКА ДАННЫХ ===
 @st.cache_data(ttl=300)
 def load_data():
     try:
@@ -33,19 +36,17 @@ raw_data = load_data()
 if raw_data is None:
     st.stop()
 
+# === ОТЛАДКА: показываем, что загрузилось ===
+with st.expander("🔍 Отладка: сырые данные"):
+    st.json(raw_data[:3])
+    st.write(f"Всего записей: {len(raw_data)}")
+
+# === ПАРСИНГ ДАННЫХ ===
 def parse_expenses(raw_data):
+    """
+    Преобразует JSON из Apps Script в структурированный формат
+    """
     result = {}
-    all_months = set()
-    
-    for item in raw_data:
-        for key in item.keys():
-            if key != "Показатель":
-                match = re.search(r'(\w{3}) (\w{3}) (\d{2}) (\d{4})', key)
-                if match:
-                    month_short = f"{match.group(4)}-{match.group(3)}"
-                    all_months.add(month_short)
-    
-    sorted_months = sorted(list(all_months))
     
     for item in raw_data:
         label = item.get("Показатель", "")
@@ -57,6 +58,8 @@ def parse_expenses(raw_data):
         
         for key, value in item.items():
             if key != "Показатель" and isinstance(value, (int, float)) and value > 0:
+                # Извлекаем месяц и год из длинной даты
+                # Пример: "Wed Jul 01 2026 00:00:00 GMT+0300"
                 match = re.search(r'(\w{3}) (\w{3}) (\d{2}) (\d{4})', key)
                 if match:
                     month_short = f"{match.group(4)}-{match.group(3)}"
@@ -69,14 +72,15 @@ def parse_expenses(raw_data):
                 "months": month_values
             }
     
-    return result, sorted_months
+    return result
 
-expenses, months = parse_expenses(raw_data)
+expenses = parse_expenses(raw_data)
 
 if not expenses:
-    st.warning("⚠️ Нет данных для отображения")
+    st.warning("⚠️ Нет данных для отображения. Проверьте отладку выше.")
     st.stop()
 
+# === БОКОВАЯ ПАНЕЛЬ: ФИЛЬТРЫ ===
 st.sidebar.header("🔍 Фильтры")
 
 categories = list(expenses.keys())
@@ -106,6 +110,7 @@ if not filtered:
 
 total_all = sum([v["total"] for v in filtered.values()])
 
+# === СТРАТЕГИЧЕСКИЕ KPI ===
 st.subheader("📊 Ключевые показатели")
 
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -133,6 +138,7 @@ with col5:
 
 st.markdown("---")
 
+# === ГРАФИК 1: СТРУКТУРА РАСХОДОВ ===
 st.subheader("🧩 Структура расходов по категориям")
 
 col_chart1, col_chart2 = st.columns([2, 1])
@@ -167,6 +173,7 @@ with col_chart2:
         </div>
         """, unsafe_allow_html=True)
 
+# === ГРАФИК 2: СРАВНЕНИЕ КАТЕГОРИЙ ===
 st.subheader("📊 Сравнение категорий")
 
 if filtered:
@@ -187,53 +194,58 @@ if filtered:
     fig.update_layout(height=400)
     st.plotly_chart(fig, use_container_width=True)
 
-if months:
-    st.subheader("📈 Динамика расходов по месяцам")
-    
-    dynamic_data = []
-    for cat, cat_data in filtered.items():
-        for month, val in cat_data["months"].items():
-            if val > 0:
-                dynamic_data.append({
-                    "Категория": cat,
-                    "Месяц": month,
-                    "Сумма": val
-                })
-    
-    if dynamic_data:
-        df_dynamic = pd.DataFrame(dynamic_data)
-        month_order = sorted(df_dynamic["Месяц"].unique())
-        df_dynamic["Месяц"] = pd.Categorical(df_dynamic["Месяц"], categories=month_order, ordered=True)
-        
-        df_monthly = df_dynamic.groupby("Месяц")["Сумма"].sum().reset_index()
-        
-        fig = px.line(
-            df_monthly,
-            x="Месяц",
-            y="Сумма",
-            title="Общая динамика расходов",
-            markers=True
-        )
-        fig.update_traces(line=dict(width=3))
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        st.subheader("📈 Детальная динамика по категориям")
-        top_cats = sorted(filtered.items(), key=lambda x: x[1]["total"], reverse=True)[:5]
-        top_cat_names = [c[0] for c in top_cats]
-        df_top = df_dynamic[df_dynamic["Категория"].isin(top_cat_names)]
-        
-        fig = px.line(
-            df_top,
-            x="Месяц",
-            y="Сумма",
-            color="Категория",
-            title="Динамика топ-5 категорий",
-            markers=True
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
+# === ГРАФИК 3: ДИНАМИКА ПО МЕСЯЦАМ ===
+st.subheader("📈 Динамика расходов по месяцам")
 
+dynamic_data = []
+for cat, cat_data in filtered.items():
+    for month, val in cat_data["months"].items():
+        if val > 0:
+            dynamic_data.append({
+                "Категория": cat,
+                "Месяц": month,
+                "Сумма": val
+            })
+
+if dynamic_data:
+    df_dynamic = pd.DataFrame(dynamic_data)
+    
+    # Сортируем месяцы
+    month_order = sorted(df_dynamic["Месяц"].unique())
+    df_dynamic["Месяц"] = pd.Categorical(df_dynamic["Месяц"], categories=month_order, ordered=True)
+    
+    # Общая динамика
+    df_monthly = df_dynamic.groupby("Месяц")["Сумма"].sum().reset_index()
+    
+    fig = px.line(
+        df_monthly,
+        x="Месяц",
+        y="Сумма",
+        title="Общая динамика расходов",
+        markers=True
+    )
+    fig.update_traces(line=dict(width=3))
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Детальная динамика по топ-5 категориям
+    st.subheader("📈 Детальная динамика по категориям")
+    top_cats = sorted(filtered.items(), key=lambda x: x[1]["total"], reverse=True)[:5]
+    top_cat_names = [c[0] for c in top_cats]
+    df_top = df_dynamic[df_dynamic["Категория"].isin(top_cat_names)]
+    
+    fig = px.line(
+        df_top,
+        x="Месяц",
+        y="Сумма",
+        color="Категория",
+        title="Динамика топ-5 категорий",
+        markers=True
+    )
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+
+# === ДЕТАЛИЗАЦИЯ ПО КАТЕГОРИЯМ ===
 st.subheader("📋 Детализация по категориям")
 
 selected_cat = st.selectbox(
@@ -278,6 +290,7 @@ if selected_cat and selected_cat in filtered:
                     </div>
                     """, unsafe_allow_html=True)
 
+# === ДЕТАЛЬНАЯ ТАБЛИЦА ===
 st.subheader("📋 Детальная таблица всех расходов")
 
 table_data = []
@@ -296,6 +309,7 @@ if table_data:
     df_table = pd.DataFrame(table_data).sort_values("Сумма", ascending=False)
     st.dataframe(df_table, use_container_width=True, height=400)
 
+# === АВТОВЫВОДЫ ===
 st.subheader("🧠 Инсайты и выводы")
 
 insights = []
@@ -330,6 +344,7 @@ for insight in insights:
     </div>
     """, unsafe_allow_html=True)
 
+# === КНОПКА "БЭКАП" ===
 st.sidebar.markdown("---")
 st.sidebar.header("💾 Экспорт")
 
@@ -349,8 +364,9 @@ if st.sidebar.button("📥 Скачать данные (Excel)"):
             data=output.getvalue(),
             file_name=f"expenses_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        )
 
+# === ИНФОРМАЦИЯ ===
 st.sidebar.markdown("---")
 st.sidebar.info(f"""
 **📊 Расходный дашборд**

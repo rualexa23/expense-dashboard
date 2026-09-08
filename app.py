@@ -178,26 +178,21 @@ def parse_hierarchical_expenses(raw_data, hierarchy):
         
         # Ищем итоговую строку категории
         for label, label_data in data_map.items():
-            # Проверяем, совпадает ли название с категорией
             if label == category or label == f"{category} (итого)":
                 total_label = label
                 break
         
-        # Если не нашли итог — пропускаем категорию
         if total_label is None:
             continue
         
         cat_total = data_map[total_label]["total"]
         cat_months = data_map[total_label]["months"]
         
-        # Если итог равен 0 — пропускаем
         if cat_total == 0:
             continue
         
-        # Собираем подкатегории
         items = {}
         for item_name, item_row in cat_info["items"].items():
-            # Ищем подкатегорию по названию
             for label, label_data in data_map.items():
                 if label == item_name:
                     if label_data["total"] > 0:
@@ -207,14 +202,12 @@ def parse_hierarchical_expenses(raw_data, hierarchy):
                         }
                     break
         
-        # Сохраняем категорию
         result[category] = {
             "total": cat_total,
             "months": cat_months,
             "items": items
         }
         
-        # Собираем все месяцы
         all_months.update(cat_months.keys())
         for item in items.values():
             all_months.update(item["months"].keys())
@@ -237,7 +230,6 @@ selected_cats = st.sidebar.multiselect(
     default=categories
 )
 
-# Фильтр по сумме
 max_val = int(max([v["total"] for v in expenses.values()])) if expenses else 100000
 amount_range = st.sidebar.slider(
     "💰 Минимальная сумма категории",
@@ -247,7 +239,6 @@ amount_range = st.sidebar.slider(
     step=1000
 )
 
-# Применяем фильтры
 filtered = {}
 for cat, cat_data in expenses.items():
     if cat in selected_cats and cat_data["total"] >= amount_range:
@@ -333,11 +324,9 @@ selected_cat = st.selectbox(
 if selected_cat and selected_cat in filtered:
     cat_data = filtered[selected_cat]
     
-    # Показываем общую сумму категории
     st.metric(f"📊 {selected_cat}", f"{cat_data['total']:,.0f} ₽")
     
     if cat_data["items"]:
-        # График по подкатегориям
         items_data = [{"Подкатегория": k, "Сумма": v["total"]} for k, v in cat_data["items"].items()]
         df_items = pd.DataFrame(items_data).sort_values("Сумма", ascending=False)
         
@@ -358,7 +347,19 @@ if selected_cat and selected_cat in filtered:
             st.plotly_chart(fig_items, use_container_width=True)
         
         with col_det2:
-            st.markdown(f"#### 📋 Подкатегории в «{selected_cat}»")
+            # Определяем название для детализации
+            if selected_cat == "Транспорт":
+                detail_label = "городам"
+            elif selected_cat == "Зарплата":
+                detail_label = "подразделениям"
+            elif selected_cat == "Реклама":
+                detail_label = "каналам"
+            elif selected_cat == "ОФИС":
+                detail_label = "статьям"
+            else:
+                detail_label = "подкатегориям"
+            
+            st.markdown(f"#### 📋 Затраты по {detail_label} в «{selected_cat}»")
             for _, row in df_items.iterrows():
                 pct = (row["Сумма"] / cat_data["total"] * 100) if cat_data["total"] > 0 else 0
                 st.markdown(f"""
@@ -370,9 +371,20 @@ if selected_cat and selected_cat in filtered:
         
         # Динамика подкатегорий
         if months and df_items is not None:
-            st.subheader("📈 Динамика подкатегорий")
+            # Определяем название для динамики
+            if selected_cat == "Транспорт":
+                dyn_label = "городам"
+            elif selected_cat == "Зарплата":
+                dyn_label = "подразделениям"
+            elif selected_cat == "Реклама":
+                dyn_label = "каналам"
+            elif selected_cat == "ОФИС":
+                dyn_label = "статьям"
+            else:
+                dyn_label = "подкатегориям"
             
-            # Собираем данные по месяцам для всех подкатегорий
+            st.subheader(f"📈 Динамика по {dyn_label}")
+            
             dyn_data = []
             for item_name, item_data in cat_data["items"].items():
                 for month, val in item_data["months"].items():
@@ -393,7 +405,7 @@ if selected_cat and selected_cat in filtered:
                     x="Месяц",
                     y="Сумма",
                     color="Подкатегория",
-                    title=f"Динамика подкатегорий: {selected_cat}",
+                    title=f"Динамика по {dyn_label}: {selected_cat}",
                     markers=True
                 )
                 fig_dyn.update_layout(height=400)
@@ -420,7 +432,6 @@ if months:
         month_order = sorted(df_dyn_all["Месяц"].unique())
         df_dyn_all["Месяц"] = pd.Categorical(df_dyn_all["Месяц"], categories=month_order, ordered=True)
         
-        # Общая динамика
         df_monthly = df_dyn_all.groupby("Месяц")["Сумма"].sum().reset_index()
         fig_total = px.line(
             df_monthly,
@@ -433,7 +444,6 @@ if months:
         fig_total.update_layout(height=400)
         st.plotly_chart(fig_total, use_container_width=True)
         
-        # Динамика по категориям (топ-5)
         st.subheader("📈 Динамика топ-5 категорий")
         top_cats = sorted(filtered.items(), key=lambda x: x[1]["total"], reverse=True)[:5]
         top_cat_names = [c[0] for c in top_cats]
@@ -477,24 +487,19 @@ st.subheader("🧠 Инсайты и выводы")
 insights = []
 
 if filtered:
-    # Самая крупная категория
     max_cat = max(filtered.items(), key=lambda x: x[1]["total"])
     pct_max = (max_cat[1]["total"] / total_all * 100) if total_all > 0 else 0
     insights.append(f"🏆 **{max_cat[0]}** — самая крупная категория: **{max_cat[1]['total']:,.0f} ₽** ({pct_max:.1f}% от всех расходов)")
     
-    # Количество категорий
     insights.append(f"📂 Всего **{len(filtered)}** категорий с расходами")
     
-    # Средняя сумма на категорию
     avg_cat = total_all / len(filtered) if filtered else 0
     insights.append(f"📊 Средняя сумма на категорию: **{avg_cat:,.0f} ₽**")
     
-    # Самая маленькая категория
     min_cat = min(filtered.items(), key=lambda x: x[1]["total"])
     if min_cat[1]["total"] > 0:
         insights.append(f"📌 **{min_cat[0]}** — самая маленькая категория: **{min_cat[1]['total']:,.0f} ₽**")
     
-    # Категории с наибольшим количеством подкатегорий
     max_items_cat = max(filtered.items(), key=lambda x: len(x[1]["items"]))
     if max_items_cat[1]["items"]:
         insights.append(f"📂 **{max_items_cat[0]}** содержит больше всего подкатегорий ({len(max_items_cat[1]['items'])} шт.)")
@@ -517,7 +522,6 @@ if st.sidebar.button("📥 Скачать данные (Excel)"):
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_export.to_excel(writer, sheet_name="Расходы", index=False)
             
-            # Сводка по категориям
             summary = [{"Категория": k, "Итого": v["total"], "Кол-во подкатегорий": len(v["items"])} 
                       for k, v in filtered.items()]
             df_summary = pd.DataFrame(summary).sort_values("Итого", ascending=False)
